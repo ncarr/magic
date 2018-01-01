@@ -58,12 +58,47 @@ passport.deserializeUser((_id, done) => db.findOne({ _id }).then(user => done(nu
 app.use(passport.initialize())
 app.use(passport.session())
 
+// Change this address to a real one and run this with NODE_ENV=production and with proper api key environment variables to send an actual email
+// The email template refers to localhost. This may have to be changed
+const Email = require('email-templates')
+
+const emailService = new Email({
+  message: {
+    from: 'test@example.com'
+  },
+  transport: require('nodemailer-mailgun-transport')({
+    auth: {
+      api_key: process.env.MAILGUN_KEY,
+      domain: process.env.MAILGUN_DOMAIN
+    }
+  }),
+  views: {
+    options: {
+      extension: 'ejs'
+    }
+  },
+  htmlToText: false
+})
+
 // Send the token when the user inititates the request
 io.on('connection', socket => {
-  socket.on('startAuth', email => {
-    const token = jwt.sign({ email, socket: socket.id }, emailPrivateKey, { expiresIn: '15 minutes', algorithm: 'ES256' })
-    console.log(`http://localhost:3000/auth/magic/${encodeURIComponent(token)}`)
-    // TODO: email this, rate limiting
+  socket.on('startAuth', async email => {
+    try {
+      const token = jwt.sign({ email, socket: socket.id }, emailPrivateKey, { expiresIn: '15 minutes', algorithm: 'ES256' })
+      // You would probably implement rate limiting here to prevent abuse
+      await emailService.send({
+        template: 'signin',
+        message: {
+          to: email
+        },
+        locals: {
+          token
+        }
+      })
+    } catch (e) {
+      socket.emit('error', e)
+      console.error(e)
+    }
   })
 })
 
